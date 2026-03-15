@@ -99,5 +99,9 @@ app.patch('/api/admin/emergency/status/:id', async (req, res) => {
     res.json({ message: "Updated" });
 });
 
-const PORT = 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 SERP Server running on port ${PORT}`));
+// Palitan ang dulo ng server.js mo nito:
+const PORT = process.env.PORT || 3000; 
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 SERP API is running on port ${PORT}`);
+});
