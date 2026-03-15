@@ -39,6 +39,11 @@ const Emergency = mongoose.model('Emergency', new mongoose.Schema({
 }));
 
 // --- ROUTES ---
+// Health Check / Status Route
+// Ito ang magpapakita ng message sa main URL ng backend
+app.get("/", (req, res) => {
+    res.send("🚀 SERP API is running and successfully connected to MongoDB Atlas!");
+});
 
 // 1. REGISTER
 app.post('/api/register', async (req, res) => {
