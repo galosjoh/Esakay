@@ -9,13 +9,14 @@ app.use(express.json());
 app.use(cors());
 
 // --- 1. MYSQL DATABASE CONNECTION ---
+// Mas malinis na setup para mawala ang warnings
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
     logging: false,
     dialectOptions: {
         ssl: {
             require: true,
-            rejectUnauthorized: false
+            rejectUnauthorized: false // Kailangan ito para sa Aiven Cloud
         }
     }
 });
