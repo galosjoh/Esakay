@@ -1,174 +1,160 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { FaThLarge, FaBell, FaUser, FaSignOutAlt, FaEdit, FaSave, FaTimes, FaUpload, FaLock } from 'react-icons/fa';
+import { FaHome, FaCalculator, FaShieldAlt, FaUsers, FaBolt, FaSignOutAlt, FaThLarge, FaCheck, FaTimes, FaTrash, FaUndo } from 'react-icons/fa';
 import './App.css';
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
-// --- LOGIN (CENTERED FULL SCREEN) ---
+// --- LOGIN ---
 const Login = () => {
     const navigate = useNavigate();
-    const [form, setForm] = useState({ username: '', password: '' });
+    const [form, setForm] = useState({ email: '', password: '' });
     const handleLogin = async (e) => {
         e.preventDefault();
         try {
             const res = await axios.post(`${API}/login`, form);
-            localStorage.setItem('serp_user', JSON.stringify(res.data.user));
+            localStorage.setItem('esakay_user', JSON.stringify(res.data.user));
             navigate(res.data.user.role === 'admin' ? '/admin' : '/user');
-        } catch (e) { alert("Invalid Credentials"); }
+        } catch (e) { alert(e.response?.data?.message || "Login Error"); }
     };
     return (
-        <div className="auth-wrapper">
-            <div className="auth-card">
-                <h1 className="logo-red">SERP</h1>
-                <p className="logo-sub">SMART EMERGENCY RESPONSE PLATFORM</p>
-                <form onSubmit={handleLogin}>
-                    <div className="input-box"><FaUser className="i"/><input placeholder="USERNAME" onChange={e=>setForm({...form, username:e.target.value})} required/></div>
-                    <div className="input-box"><FaLock className="i"/><input type="password" placeholder="PASSWORD" onChange={e=>setForm({...form, password:e.target.value})} required/></div>
-                    <button type="submit" className="portal-btn">LOG IN</button>
-                </form>
-                <p className="auth-footer">New student? <span onClick={()=>navigate('/register')}>Register here</span></p>
-            </div>
-        </div>
+        <div className="portal-login-bg"><div className="portal-login-card">
+            <FaBolt size={50} color="#0056b3"/><h1>eSakay Login</h1>
+            <form onSubmit={handleLogin}>
+                <input className="portal-input" type="email" placeholder="Email" onChange={e=>setForm({...form, email:e.target.value})} required/>
+                <input className="portal-input" type="password" placeholder="Password" onChange={e=>setForm({...form, password:e.target.value})} required/>
+                <button type="submit" className="portal-btn">Login</button>
+            </form>
+            <p onClick={()=>navigate('/register')} style={{cursor:'pointer', color:'#0056b3', marginTop:'10px'}}>Register</p>
+        </div></div>
     );
 };
 
-// --- REGISTER (CENTERED FULL SCREEN) ---
+// --- REGISTER ---
 const Register = () => {
     const navigate = useNavigate();
-    const [form, setForm] = useState({ name:'', email:'', username:'', password:'', role:'user', address:'' });
+    const [form, setForm] = useState({ name: '', email: '', password: '', role: 'user' });
     const handleReg = async (e) => {
         e.preventDefault();
-        try {
-            await axios.post(`${API}/register`, form);
-            alert("Account Created!"); navigate('/');
-        } catch (e) { alert("Registration Failed"); }
+        try { await axios.post(`${API}/register`, form); alert("Registered! Wait for Admin."); navigate('/'); } 
+        catch (e) { alert("Registration Failed"); }
     };
     return (
-        <div className="auth-wrapper">
-            <div className="auth-card reg-card">
-                <h1 className="logo-red small">SERP</h1>
-                <h2 style={{marginBottom:'20px'}}>Create Account</h2>
-                <form onSubmit={handleReg}>
-                    <input className="serp-input" placeholder="FULL NAME" onChange={e=>setForm({...form, name:e.target.value})} required/>
-                    <input className="serp-input" placeholder="EMAIL" onChange={e=>setForm({...form, email:e.target.value})} required/>
-                    <input className="serp-input" placeholder="ADDRESS" onChange={e=>setForm({...form, address:e.target.value})} required/>
-                    <input className="serp-input" placeholder="CREATE USERNAME" onChange={e=>setForm({...form, username:e.target.value})} required/>
-                    <input className="serp-input" type="password" placeholder="PASSWORD" onChange={e=>setForm({...form, password:e.target.value})} required/>
-                    <button type="button" className="upload-btn"><FaUpload/> UPLOAD ID</button>
-                    <select className="serp-input" onChange={e=>setForm({...form, role:e.target.value})}><option value="user">USER / RESIDENT</option><option value="admin">ADMIN / RESPONDER</option></select>
-                    <button type="submit" className="portal-btn">SIGN UP</button>
-                </form>
-                <p className="auth-footer">Have account? <span onClick={()=>navigate('/')}>Login</span></p>
-            </div>
-        </div>
+        <div className="portal-login-bg"><div className="portal-login-card"><h2>Sign Up</h2>
+            <form onSubmit={handleReg}>
+                <input className="portal-input" placeholder="Full Name" onChange={e=>setForm({...form, name:e.target.value})} required/>
+                <input className="portal-input" type="email" placeholder="Email" onChange={e=>setForm({...form, email:e.target.value})} required/>
+                <input className="portal-input" type="password" placeholder="Password" onChange={e=>setForm({...form, password:e.target.value})} required/>
+                <select className="portal-input" onChange={e=>setForm({...form, role:e.target.value})}><option value="user">User</option><option value="admin">Admin</option></select>
+                <button type="submit" className="portal-btn">Create Account</button>
+            </form>
+        </div></div>
     );
 };
 
-// --- MAIN PORTAL ---
-const Portal = ({ role }) => {
+// --- ADMIN PORTAL ---
+const AdminPortal = () => {
+    const [active, setActive] = useState('dash');
+    const [data, setData] = useState({ users: [], trips: [], sos: [] });
+    const user = JSON.parse(localStorage.getItem('esakay_user'));
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState('dashboard');
-    const [user, setUser] = useState(JSON.parse(localStorage.getItem('serp_user')));
-    const [data, setData] = useState({ emergencies: [], activeCount: 0, respondersCount: 0 });
-    const [notif, setNotif] = useState(null);
-    const [editMode, setEditMode] = useState(false);
-    const [profileForm, setProfileForm] = useState({ ...user });
 
-    const fetchData = async () => {
-        if(role === 'admin') {
-            const res = await axios.get(`${API}/admin/data`);
-            setData(res.data);
-        } else {
-            const res = await axios.get(`${API}/user/sos-status/${user.name}`);
-            setNotif(res.data);
-        }
-    };
+    const fetchAll = async () => { try { const res = await axios.get(`${API}/admin/all`); setData(res.data); } catch(e){} };
+    useEffect(() => { fetchAll(); const i = setInterval(fetchAll, 3000); return ()=>clearInterval(i); }, []);
 
-    useEffect(() => { 
-        if(!user) navigate('/');
-        fetchData(); 
-        const i = setInterval(fetchData, 4000);
-        return () => clearInterval(i);
-    }, []);
-
-    const handleUpdateStatus = async (id, status) => {
-        await axios.patch(`${API}/admin/emergency/status/${id}`, { status });
-        fetchData();
-    };
-
-    const handleSaveProfile = async () => {
-        const res = await axios.patch(`${API}/user/update/${user._id}`, profileForm);
-        localStorage.setItem('serp_user', JSON.stringify(res.data));
-        setUser(res.data); setEditMode(false); alert("Updated!");
-    };
+    const updateStatus = async (id, status) => { await axios.patch(`${API}/admin/users/status/${id}`, { status }); fetchAll(); };
+    const resolveSOS = async (id) => { await axios.patch(`${API}/admin/sos/resolve/${id}`); fetchAll(); };
+    const moveToTrash = async (id) => { await axios.patch(`${API}/admin/trips/delete/${id}`); fetchAll(); };
+    const restoreTrip = async (id) => { await axios.patch(`${API}/admin/trips/restore/${id}`); fetchAll(); };
 
     return (
         <div className="portal-layout">
             <aside className="sidebar">
-                <div className="sidebar-brand">SERP PORTAL</div>
-                <div className="sidebar-user"><div className="user-icon-circle"><FaUser/></div><p>{user?.name}</p><small>{role.toUpperCase()}</small></div>
-                <div className={`nav-item ${activeTab==='dashboard'?'active':''}`} onClick={()=>setActiveTab('dashboard')}><FaThLarge/> Dashboard</div>
-                <div className={`nav-item ${activeTab==='alerts'?'active':''}`} onClick={()=>setActiveTab('alerts')}><FaBell/> Alerts</div>
-                <div className={`nav-item ${activeTab==='profile'?'active':''}`} onClick={()=>setActiveTab('profile')}><FaUser/> My Profile</div>
-                <div className="logout-btn" onClick={()=>{localStorage.removeItem('serp_user'); navigate('/')}}><FaSignOutAlt/> Logout</div>
+                <div className="brand">eSakay PORTAL</div>
+                <div onClick={()=>setActive('dash')} className={active==='dash'?'nav active':'nav'}><FaThLarge/> Dashboard</div>
+                <div onClick={()=>setActive('users')} className={active==='users'?'nav active':'nav'}><FaUsers/> Commuters</div>
+                <div onClick={()=>setActive('sos')} className={active==='sos'?'nav active':'nav'}><FaShieldAlt/> SOS Alerts</div>
+                <div onClick={()=>setActive('trash')} className={active==='trash'?'nav active':'nav'}><FaUndo/> Recycle Bin</div>
+                <div className="logout" onClick={()=>{localStorage.removeItem('esakay_user'); navigate('/')}}><FaSignOutAlt/> Logout</div>
             </aside>
-
-            <main className="content-area">
-                <header className="top-nav"><h2>{activeTab.toUpperCase()}</h2><div>Welcome, <b>{user?.name}</b></div></header>
-                <div className="inner-padding">
-                    
-                    {activeTab === 'dashboard' && (
-                        role === 'admin' ? (
-                            <div className="stats-row">
-                                <div className="stat-card"><h3>{data.activeCount}</h3><p>Active Emergencies</p></div>
-                                <div className="stat-card"><h3>{data.respondersCount}</h3><p>Total Responders</p></div>
-                            </div>
-                        ) : (
-                            <div className="sos-full-view">
-                                {notif?.status === 'responded' && <div style={{padding:'15px', background:'#fee2e2', color:'red', borderRadius:'10px', marginBottom:'20px'}}>⚠️ Admin is RESPONDING!</div>}
-                                {notif?.status === 'done' && <div style={{padding:'15px', background:'#dcfce7', color:'green', borderRadius:'10px', marginBottom:'20px'}}>✅ Status: COMPLETED</div>}
-                                <button className="sos-btn-huge" onClick={async()=>{await axios.post(`${API}/emergency/sos`, {userName:user.name, location:user.address}); alert("SOS SENT!")}}>SOS</button>
-                            </div>
-                        )
-                    )}
-
-                    {activeTab === 'alerts' && (
-                        <div className="profile-wrapper">
-                            <h3>Live Logs</h3>
-                            <div style={{marginTop:'20px'}}>
-                                {data.emergencies.map(em=>(
-                                    <div key={em._id} className="emergency-item">
-                                        <div><p><b>USER:</b> {em.userName}</p><p><b>LOC:</b> {em.location}</p></div>
-                                        <div>
-                                            {em.status === 'active' && <button className="respond-btn" onClick={()=>handleUpdateStatus(em._id, 'responded')}>RESPOND NOW</button>}
-                                            {em.status === 'responded' && <button className="done-btn-green" onClick={()=>handleUpdateStatus(em._id, 'done')}>MARK AS DONE</button>}
-                                            {em.status === 'done' && <span style={{color:'green', fontWeight:'bold'}}>CLOSED</span>}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+            <main className="main">
+                <header className="top"><h2>Admin Panel</h2> <span>Welcome, {user?.name} (admin)</span></header>
+                <div className="content">
+                    {active === 'dash' && (
+                        <div className="grid-stats">
+                            <div className="card"><h4>{data.users.length}</h4><p>Total Users</p></div>
+                            <div className="card full"><h3>Live Trip Logs</h3>
+                            <table><thead><tr><th>User</th><th>Route</th><th>Fare</th><th>Action</th></tr></thead>
+                            <tbody>{data.trips.filter(t=>!t.isDeleted).map(t=>(<tr key={t._id}><td>{t.userName}</td><td>{t.origin}-{t.destination}</td><td>₱{t.fare}</td><td><FaTrash onClick={()=>moveToTrash(t._id)} style={{color:'red', cursor:'pointer'}}/></td></tr>))}</tbody></table></div>
                         </div>
                     )}
+                    {active === 'users' && (
+                        <div className="card"><h3>Manage Users</h3>
+                        <table><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>{data.users.filter(u=>u.role==='user').map(u=>(<tr key={u._id}><td>{u.name}</td><td>{u.email}</td><td>{u.status}</td>
+                        <td><button className="btn-app" onClick={()=>updateStatus(u._id, 'approved')}><FaCheck/></button> <button className="btn-rej" onClick={()=>updateStatus(u._id, 'rejected')}><FaTimes/></button></td></tr>))}</tbody></table></div>
+                    )}
+                    {active === 'sos' && (
+                        <div className="card"><h3>SOS Center</h3>
+                        {data.sos.map(s=>(<div key={s._id} className={`sos-row ${s.status}`}><span><b>{s.userName}</b> needs help!</span>{s.status==='active' ? <button className="btn-sos" onClick={()=>resolveSOS(s._id)}>RESPOND</button> : <span>Handled</span>}</div>))}</div>
+                    )}
+                    {active === 'trash' && (
+                        <div className="card"><h3>Recycle Bin</h3>
+                        <table><thead><tr><th>User</th><th>Route</th><th>Fare</th><th>Action</th></tr></thead>
+                        <tbody>{data.trips.filter(t=>t.isDeleted).map(t=>(<tr key={t._id}><td>{t.userName}</td><td>{t.origin}-{t.destination}</td><td>₱{t.fare}</td><td><button className="btn-app" onClick={()=>restoreTrip(t._id)}>Restore</button></td></tr>))}</tbody></table></div>
+                    )}
+                </div>
+            </main>
+        </div>
+    );
+};
 
-                    {activeTab === 'profile' && (
-                        <div className="profile-wrapper">
-                            <div className="profile-header-flex">
-                                <h2>{role==='admin'?'ADMIN':'USER'} INFORMATION</h2>
-                                {!editMode ? <button className="edit-btn-blue" onClick={()=>setEditMode(true)}><FaEdit/> Edit</button> :
-                                <div style={{display:'flex', gap:'10px'}}><button className="save-btn-green" onClick={handleSaveProfile}><FaSave/> Save</button><button onClick={()=>setEditMode(false)}><FaTimes/></button></div>}
-                            </div>
-                            <div className="profile-avatar-large" style={{width:'100px', height:'100px', background:'#eee', borderRadius:'50%', margin:'20px auto'}}></div>
-                            <div className="profile-form-grid">
-                                <div className="f-box"><label>NAME</label>{editMode ? <input value={profileForm.name} onChange={e=>setProfileForm({...profileForm, name:e.target.value})}/> : <span>{user.name}</span>}</div>
-                                <div className="f-box"><label>AGE</label>{editMode ? <input value={profileForm.age} onChange={e=>setProfileForm({...profileForm, age:e.target.value})}/> : <span>{user.age || "28"}</span>}</div>
-                                <div className="f-box"><label>GENDER</label>{editMode ? <input value={profileForm.gender} onChange={e=>setProfileForm({...profileForm, gender:e.target.value})}/> : <span>{user.gender || "FEMALE"}</span>}</div>
-                                <div className="f-box"><label>ZIP CODE</label>{editMode ? <input value={profileForm.zipCode} onChange={e=>setProfileForm({...profileForm, zipCode:e.target.value})}/> : <span>{user.zipCode || "9500"}</span>}</div>
-                                <div className="f-box"><label>BLOOD</label>{editMode ? <input value={profileForm.bloodType} onChange={e=>setProfileForm({...profileForm, bloodType:e.target.value})}/> : <span>{user.bloodType}</span>}</div>
-                                <div className="f-box full-w"><label>ADDRESS</label>{editMode ? <input value={profileForm.address} onChange={e=>setProfileForm({...profileForm, address:e.target.value})}/> : <span>{user.address}</span>}</div>
-                            </div>
-                        </div>
+// --- USER PORTAL ---
+const UserPortal = () => {
+    const [active, setActive] = useState('dash');
+    const [user] = useState(JSON.parse(localStorage.getItem('esakay_user')));
+    const [fare, setFare] = useState({ origin: '', destination: '', type: 'Jeepney', res: null });
+    const [sosStatus, setSosStatus] = useState(null);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        const check = async () => { const res = await axios.get(`${API}/user/sos/status/${user.name}`); setSosStatus(res.data); };
+        check(); const i = setInterval(check, 5000); return ()=>clearInterval(i);
+    }, [user.name]);
+
+    const handleCalc = async () => {
+        const amt = fare.type === 'Jeepney' ? 12 : 25; setFare({...fare, res: amt});
+        await axios.post(`${API}/trips`, { userName: user.name, origin: fare.origin, destination: fare.destination, fare: amt, vehicle: fare.type });
+    };
+
+    return (
+        <div className="portal-layout">
+            <aside className="sidebar"><div className="brand">eSakay</div>
+                <div onClick={()=>setActive('dash')} className={active==='dash'?'nav active':'nav'}><FaHome/> Dashboard</div>
+                <div onClick={()=>setActive('fare')} className={active==='fare'?'nav active':'nav'}><FaCalculator/> Fare Calc</div>
+                <div onClick={()=>setActive('sos')} className={active==='sos'?'nav active':'nav'}><FaShieldAlt/> Safety</div>
+                <div className="logout" onClick={()=>{localStorage.removeItem('esakay_user'); navigate('/')}}><FaSignOutAlt/> Logout</div>
+            </aside>
+            <main className="main">
+                <header className="top"><h2>User Portal</h2> <span>Welcome, {user?.name}</span></header>
+                <div className="content">
+                    {active === 'dash' && (
+                        <div className="card"><h1>Home Feed</h1>
+                        {sosStatus?.status === 'resolved' && <div className="notif resolved">✅ SOS Handled by Admin.</div>}
+                        {sosStatus?.status === 'active' && <div className="notif active">⚠️ SOS is Active. Help is coming.</div>}
+                        <p>Welcome to eSakay Gensan Smart Platform.</p></div>
+                    )}
+                    {active === 'fare' && (
+                        <div className="card"><h3>Fare Calculator</h3>
+                        <input className="portal-input" placeholder="From" onChange={e=>setFare({...fare, origin:e.target.value})}/>
+                        <input className="portal-input" placeholder="To" onChange={e=>setFare({...fare, destination:e.target.value})}/>
+                        <select className="portal-input" onChange={e=>setFare({...fare, type:e.target.value})}><option value="Jeepney">Jeepney</option><option value="Tricycle">Tricycle</option></select>
+                        <button className="portal-btn" onClick={handleCalc}>Calculate & Save</button>
+                        {fare.res && <h2>Fare: ₱{fare.res}.00</h2>}</div>
+                    )}
+                    {active === 'sos' && (
+                        <div className="card text-center"><h2>Emergency SOS</h2><button className="btn-sos-trigger" onClick={async()=>{await axios.post(`${API}/sos`, {userName:user.name, location:"GenSan Area"}); alert("SOS Sent!");}}>SEND SOS</button></div>
                     )}
                 </div>
             </main>
@@ -177,5 +163,5 @@ const Portal = ({ role }) => {
 };
 
 export default function App() {
-    return (<Router><Routes><Route path="/" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/admin" element={<Portal role="admin" />} /><Route path="/user" element={<Portal role="user" />} /></Routes></Router>);
+    return (<Router><Routes><Route path="/" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/admin" element={<AdminPortal />} /><Route path="/user" element={<UserPortal />} /></Routes></Router>);
 }

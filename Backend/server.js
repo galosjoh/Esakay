@@ -5,103 +5,102 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
-
-// --- MIDDLEWARES ---
 app.use(express.json());
-app.use(cors()); // Pinakasimpleng CORS para hindi mag-error
+app.use(cors());
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ SERP Connected to MongoDB'))
+    .then(() => console.log('✅ eSakay Database Connected'))
     .catch(err => console.log('❌ DB Error:', err));
 
 // --- MODELS ---
 const User = mongoose.model('User', new mongoose.Schema({
     name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    email: { type: String, unique: true, required: true },
     password: { type: String, required: true },
-    username: { type: String, required: true, unique: true },
-    address: { type: String, default: "" },
-    phone: { type: String, default: "" },
-    age: { type: String, default: "" },
-    gender: { type: String, default: "" },
-    zipCode: { type: String, default: "" },
-    bloodType: { type: String, default: "N/A" },
-    medicalCondition: { type: String, default: "NONE" },
-    role: { type: String, default: 'user' }
+    role: { type: String, default: 'user' }, 
+    status: { type: String, default: 'pending' }, 
+    dateCreated: { type: Date, default: Date.now }
 }));
 
-const Emergency = mongoose.model('Emergency', new mongoose.Schema({
-    userName: String,
-    location: String,
-    status: { type: String, default: 'active' }, // active, responded, done
+const Trip = mongoose.model('Trip', new mongoose.Schema({
+    userName: String, origin: String, destination: String, fare: Number, vehicle: String, 
+    isDeleted: { type: Boolean, default: false },
+    date: { type: Date, default: Date.now }
+}));
+
+const SOS = mongoose.model('SOS', new mongoose.Schema({
+    userName: String, location: String, status: { type: String, default: 'active' }, 
     date: { type: Date, default: Date.now }
 }));
 
 // --- ROUTES ---
-// Health Check / Status Route
-// Ito ang magpapakita ng message sa main URL ng backend
-app.get("/", (req, res) => {
-    res.send("🚀 SERP API is running and successfully connected to MongoDB Atlas!");
-});
 
-// 1. REGISTER
-app.post('/api/register', async (req, res) => {
-    try {
-        const hashedPassword = await bcrypt.hash(req.body.password, 10);
-        const newUser = new User({ ...req.body, password: hashedPassword });
-        await newUser.save();
-        res.json({ message: "Registration Success!" });
-    } catch (e) { res.status(400).json({ message: "Error: Email or Username taken" }); }
-});
-
-// 2. LOGIN
+// 1. AUTH & ACCOUNT
 app.post('/api/login', async (req, res) => {
-    const user = await User.findOne({ username: req.body.username });
+    const user = await User.findOne({ email: req.body.email });
     if (!user) return res.status(400).json({ message: "User not found" });
     const isMatch = await bcrypt.compare(req.body.password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
+    if (user.role === 'user' && user.status !== 'approved') return res.status(403).json({ message: `Account is ${user.status}.` });
     res.json({ user });
 });
 
-// 3. UPDATE PROFILE
-app.patch('/api/user/update/:id', async (req, res) => {
+app.post('/api/register', async (req, res) => {
     try {
-        const updated = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        res.json(updated);
-    } catch (e) { res.status(400).json({ message: "Update Failed" }); }
+        const { name, email, password, role } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = new User({ name, email, password: hashedPassword, role, status: role === 'admin' ? 'approved' : 'pending' });
+        await newUser.save();
+        res.json({ message: "Registered! Wait for Admin Approval." });
+    } catch (e) { res.status(400).json({ message: "Email already taken" }); }
 });
 
-// 4. ADMIN DATA & STATS
-app.get('/api/admin/data', async (req, res) => {
-    const emergencies = await Emergency.find().sort({ date: -1 });
-    const activeCount = await Emergency.countDocuments({ status: 'active' });
-    const respondersCount = await User.countDocuments({ role: 'admin' });
-    res.json({ emergencies, activeCount, respondersCount });
+// 2. ADMIN MANAGEMENT
+app.get('/api/admin/all', async (req, res) => {
+    const users = await User.find();
+    const trips = await Trip.find().sort({ date: -1 });
+    const sos = await SOS.find().sort({ date: -1 });
+    res.json({ users, trips, sos });
 });
 
-// 5. USER EMERGENCY STATUS (NOTIFICATION)
-app.get('/api/user/sos-status/:name', async (req, res) => {
-    const status = await Emergency.findOne({ userName: req.params.name }).sort({ date: -1 });
-    res.json(status);
+app.patch('/api/admin/users/status/:id', async (req, res) => {
+    await User.findByIdAndUpdate(req.params.id, { status: req.body.status });
+    res.json({ message: "Status Updated" });
 });
 
-// 6. SEND SOS
-app.post('/api/emergency/sos', async (req, res) => {
-    const em = new Emergency(req.body);
-    await em.save();
-    res.json(em);
+app.patch('/api/admin/trips/delete/:id', async (req, res) => {
+    await Trip.findByIdAndUpdate(req.params.id, { isDeleted: true });
+    res.json({ message: "Moved to Trash" });
 });
 
-// 7. ADMIN UPDATE STATUS
-app.patch('/api/admin/emergency/status/:id', async (req, res) => {
-    await Emergency.findByIdAndUpdate(req.params.id, { status: req.body.status });
-    res.json({ message: "Updated" });
+app.patch('/api/admin/trips/restore/:id', async (req, res) => {
+    await Trip.findByIdAndUpdate(req.params.id, { isDeleted: false });
+    res.json({ message: "Restored" });
 });
 
-// Palitan ang dulo ng server.js mo nito:
+app.patch('/api/admin/sos/resolve/:id', async (req, res) => {
+    await SOS.findByIdAndUpdate(req.params.id, { status: 'resolved' });
+    res.json({ message: "SOS Handled" });
+});
+
+// 3. USER ACTIONS
+app.post('/api/trips', async (req, res) => {
+    const trip = new Trip(req.body); await trip.save(); res.json(trip);
+});
+
+app.post('/api/sos', async (req, res) => {
+    const s = new SOS(req.body); await s.save(); res.json(s);
+});
+
+app.get('/api/user/sos/status/:name', async (req, res) => {
+    const lastSOS = await SOS.findOne({ userName: req.params.name }).sort({ date: -1 });
+    res.json(lastSOS);
+});
+
+// Health Check
+app.get("/", (req, res) => res.send("🚀 eSakay API is live!"));
+
+// --- SERVER LISTEN ---
 const PORT = process.env.PORT || 3000; 
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SERP API is running on port ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on port ${PORT}`));
