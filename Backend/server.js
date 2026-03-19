@@ -1,5 +1,5 @@
 const express = require('express');
-const mongoose = require('mongoose');
+const { Sequelize, DataTypes } = require('sequelize');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
@@ -8,37 +8,49 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// --- DATABASE CONNECTION ---
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ eSakay Database Connected'))
-    .catch(err => console.log('❌ DB Error:', err));
+// 1. KONEKSYON SA MYSQL
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+    dialect: 'mysql',
+    logging: false
+});
 
-// --- MODELS ---
-const User = mongoose.model('User', new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, unique: true, required: true },
-    password: { type: String, required: true },
-    role: { type: String, default: 'user' }, 
-    status: { type: String, default: 'pending' }, 
-    dateCreated: { type: Date, default: Date.now }
-}));
+sequelize.authenticate()
+    .then(() => console.log('✅ eSakay connected to MySQL (XAMPP)!'))
+    .catch(err => console.log('❌ MySQL Error:', err));
 
-const Trip = mongoose.model('Trip', new mongoose.Schema({
-    userName: String, origin: String, destination: String, fare: Number, vehicle: String, 
-    isDeleted: { type: Boolean, default: false },
-    date: { type: Date, default: Date.now }
-}));
+// 2. MGA TABLES (MODELS)
+const User = sequelize.define('User', {
+    name: { type: DataTypes.STRING, allowNull: false },
+    email: { type: DataTypes.STRING, unique: true, allowNull: false },
+    password: { type: DataTypes.STRING, allowNull: false },
+    role: { type: DataTypes.STRING, defaultValue: 'user' },
+    status: { type: DataTypes.STRING, defaultValue: 'pending' }
+});
 
-const SOS = mongoose.model('SOS', new mongoose.Schema({
-    userName: String, location: String, status: { type: String, default: 'active' }, 
-    date: { type: Date, default: Date.now }
-}));
+const Trip = sequelize.define('Trip', {
+    userName: DataTypes.STRING, origin: DataTypes.STRING, destination: DataTypes.STRING,
+    fare: DataTypes.FLOAT, vehicle: DataTypes.STRING, isDeleted: { type: DataTypes.BOOLEAN, defaultValue: false }
+});
 
-// --- ROUTES ---
+const SOS = sequelize.define('SOS', {
+    userName: DataTypes.STRING, location: DataTypes.STRING, status: { type: DataTypes.STRING, defaultValue: 'active' }
+});
 
-// 1. AUTH & ACCOUNT
+// Gagawa ng tables sa phpMyAdmin automatic
+sequelize.sync();
+
+// 3. MGA ROUTES (Logic ng App)
+app.post('/api/register', async (req, res) => {
+    try {
+        const { name, email, password, role } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await User.create({ name, email, password: hashedPassword, role, status: role === 'admin' ? 'approved' : 'pending' });
+        res.json({ message: "Registered! Wait for Admin Approval." });
+    } catch (e) { res.status(400).json({ message: "Email taken" }); }
+});
+
 app.post('/api/login', async (req, res) => {
-    const user = await User.findOne({ email: req.body.email });
+    const user = await User.findOne({ where: { email: req.body.email } });
     if (!user) return res.status(400).json({ message: "User not found" });
     const isMatch = await bcrypt.compare(req.body.password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
@@ -46,61 +58,17 @@ app.post('/api/login', async (req, res) => {
     res.json({ user });
 });
 
-app.post('/api/register', async (req, res) => {
-    try {
-        const { name, email, password, role } = req.body;
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ name, email, password: hashedPassword, role, status: role === 'admin' ? 'approved' : 'pending' });
-        await newUser.save();
-        res.json({ message: "Registered! Wait for Admin Approval." });
-    } catch (e) { res.status(400).json({ message: "Email already taken" }); }
-});
-
-// 2. ADMIN MANAGEMENT
 app.get('/api/admin/all', async (req, res) => {
-    const users = await User.find();
-    const trips = await Trip.find().sort({ date: -1 });
-    const sos = await SOS.find().sort({ date: -1 });
+    const users = await User.findAll();
+    const trips = await Trip.findAll({ order: [['createdAt', 'DESC']] });
+    const sos = await SOS.findAll({ order: [['createdAt', 'DESC']] });
     res.json({ users, trips, sos });
 });
 
-app.patch('/api/admin/users/status/:id', async (req, res) => {
-    await User.findByIdAndUpdate(req.params.id, { status: req.body.status });
-    res.json({ message: "Status Updated" });
-});
+app.post('/api/trips', async (req, res) => { res.json(await Trip.create(req.body)); });
+app.post('/api/sos', async (req, res) => { res.json(await SOS.create(req.body)); });
 
-app.patch('/api/admin/trips/delete/:id', async (req, res) => {
-    await Trip.findByIdAndUpdate(req.params.id, { isDeleted: true });
-    res.json({ message: "Moved to Trash" });
-});
+app.get("/", (req, res) => res.send("eSakay MySQL API is running..."));
 
-app.patch('/api/admin/trips/restore/:id', async (req, res) => {
-    await Trip.findByIdAndUpdate(req.params.id, { isDeleted: false });
-    res.json({ message: "Restored" });
-});
-
-app.patch('/api/admin/sos/resolve/:id', async (req, res) => {
-    await SOS.findByIdAndUpdate(req.params.id, { status: 'resolved' });
-    res.json({ message: "SOS Handled" });
-});
-
-// 3. USER ACTIONS
-app.post('/api/trips', async (req, res) => {
-    const trip = new Trip(req.body); await trip.save(); res.json(trip);
-});
-
-app.post('/api/sos', async (req, res) => {
-    const s = new SOS(req.body); await s.save(); res.json(s);
-});
-
-app.get('/api/user/sos/status/:name', async (req, res) => {
-    const lastSOS = await SOS.findOne({ userName: req.params.name }).sort({ date: -1 });
-    res.json(lastSOS);
-});
-
-// Health Check
-app.get("/", (req, res) => res.send("🚀 eSakay API is live!"));
-
-// --- SERVER LISTEN ---
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on port ${PORT}`));
