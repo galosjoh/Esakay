@@ -8,18 +8,22 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// --- 1. MYSQL CONNECTION (AIVEN CLOUD) ---
+// --- 1. MYSQL DATABASE CONNECTION ---
+// Mas malinis na setup para mawala ang warnings
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
     logging: false,
     dialectOptions: {
-        ssl: { require: true, rejectUnauthorized: false }
+        ssl: {
+            require: true,
+            rejectUnauthorized: false // Kailangan ito para sa Aiven Cloud
+        }
     }
 });
 
 sequelize.authenticate()
-    .then(() => console.log('✅ eSakay connected to MySQL Cloud'))
-    .catch(err => console.log('❌ MySQL Error:', err));
+    .then(() => console.log('✅ eSakay connected to Cloud MySQL (Aiven)!'))
+    .catch(err => console.log('❌ MySQL Connection Error:', err));
 
 // --- 2. MODELS (TABLES) ---
 const User = sequelize.define('User', {
@@ -41,7 +45,7 @@ const Trip = sequelize.define('Trip', {
 
 const SOS = sequelize.define('SOS', {
     userName: DataTypes.STRING,
-    location: { type: DataTypes.STRING, defaultValue: "General Santos City" },
+    location: DataTypes.STRING,
     status: { type: DataTypes.STRING, defaultValue: 'active' }
 });
 
@@ -52,7 +56,7 @@ sequelize.sync();
 
 app.get("/", (req, res) => res.send("🚀 eSakay MySQL API is Live!"));
 
-// AUTH LOGIC
+// AUTH
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
@@ -74,7 +78,7 @@ app.post('/api/login', async (req, res) => {
     res.json({ user });
 });
 
-// ADMIN ACTIONS
+// ADMIN MANAGEMENT
 app.get('/api/admin/all', async (req, res) => {
     const users = await User.findAll();
     const trips = await Trip.findAll({ where: { isDeleted: false }, order: [['createdAt', 'DESC']] });
@@ -111,5 +115,6 @@ app.get('/api/user/sos/status/:name', async (req, res) => {
     res.json(last);
 });
 
-const PORT = process.env.PORT || 10000;
+// SERVER LISTEN
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
