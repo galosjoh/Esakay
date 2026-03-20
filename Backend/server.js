@@ -6,26 +6,18 @@ require('dotenv').config();
 
 const app = express();
 app.use(express.json());
-
-// Pinapayagan ang lahat ng connection para iwas CORS error sa deployment
 app.use(cors());
 
-// --- 1. CLOUD DATABASE CONNECTION (AIVEN MYSQL) ---
-// Ang SSL property ay kailangan para makakonekta sa Aiven Cloud
+// --- 1. CLOUD MYSQL CONNECTION (SSL enabled for Aiven) ---
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
     logging: false,
-    dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false
-        }
-    }
+    dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
 });
 
 sequelize.authenticate()
-    .then(() => console.log('✅ eSakay connected to Aiven Cloud MySQL!'))
-    .catch(err => console.log('❌ MySQL Connection Error:', err));
+    .then(() => console.log('✅ eSakay MySQL Connected'))
+    .catch(err => console.log('❌ DB Error:', err));
 
 // --- 2. MODELS (TABLES) ---
 const User = sequelize.define('User', {
@@ -41,7 +33,6 @@ const Trip = sequelize.define('Trip', {
     origin: DataTypes.STRING,
     destination: DataTypes.STRING,
     fare: DataTypes.FLOAT,
-    vehicle: { type: DataTypes.STRING, defaultValue: 'Jeepney' },
     isDeleted: { type: DataTypes.BOOLEAN, defaultValue: false }
 });
 
@@ -51,107 +42,65 @@ const SOS = sequelize.define('SOS', {
     status: { type: DataTypes.STRING, defaultValue: 'active' } // active or resolved
 });
 
-// Gagawa ng tables sa Aiven Cloud automatic
 sequelize.sync();
 
 // --- 3. ROUTES ---
 
-// Health Check (Para malaman kung gising ang server)
-app.get("/", (req, res) => {
-    res.send("🚀 eSakay Cloud API is running and connected to Aiven MySQL!");
-});
-
-// REGISTER LOGIC
+// AUTH & REGISTRATION
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
-        // Automatic approved kung Admin ang nag-register
-        await User.create({ 
-            name, email, password: hashedPassword, role, 
-            status: role === 'admin' ? 'approved' : 'pending' 
-        });
+        await User.create({ name, email, password: hashedPassword, role, status: role === 'admin' ? 'approved' : 'pending' });
         res.json({ message: "Registered! Wait for Admin Approval." });
-    } catch (e) { res.status(400).json({ message: "Email already taken" }); }
+    } catch (e) { res.status(400).json({ message: "Email taken" }); }
 });
 
-// LOGIN LOGIC
 app.post('/api/login', async (req, res) => {
-    try {
-        const user = await User.findOne({ where: { email: req.body.email } });
-        if (!user) return res.status(400).json({ message: "User not found" });
-        
-        const isMatch = await bcrypt.compare(req.body.password, user.password);
-        if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
-        
-        if (user.role === 'user' && user.status !== 'approved') {
-            return res.status(403).json({ message: `Account is ${user.status}.` });
-        }
-        res.json({ user });
-    } catch (e) { res.status(500).send(e); }
+    const user = await User.findOne({ where: { email: req.body.email } });
+    if (!user) return res.status(400).json({ message: "User not found" });
+    const isMatch = await bcrypt.compare(req.body.password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
+    if (user.role === 'user' && user.status !== 'approved') return res.status(403).json({ message: `Account is ${user.status}.` });
+    res.json({ user });
 });
 
-// UPDATE PROFILE (Dito ang edit profile functionality)
+// UPDATE PROFILE (Logic for both User & Admin)
 app.patch('/api/users/update/:id', async (req, res) => {
     try {
         const { name, email, password } = req.body;
         let updateData = { name, email };
         if (password) updateData.password = await bcrypt.hash(password, 10);
-        
         await User.update(updateData, { where: { id: req.params.id } });
-        const updatedUser = await User.findByPk(req.params.id);
-        res.json(updatedUser);
+        const updated = await User.findByPk(req.params.id);
+        res.json(updated);
     } catch (e) { res.status(400).send("Update Failed"); }
 });
 
-// ADMIN: GET ALL DATA (Dashboard Stats + Logs)
+// ADMIN DATA (Dashboard + Recycle Bin + SOS)
 app.get('/api/admin/all', async (req, res) => {
-    try {
-        const users = await User.findAll();
-        const trips = await Trip.findAll({ where: { isDeleted: false }, order: [['createdAt', 'DESC']] });
-        const trash = await Trip.findAll({ where: { isDeleted: true } });
-        const sos = await SOS.findAll({ order: [['createdAt', 'DESC']] });
-        res.json({ users, trips, trash, sos });
-    } catch (e) { res.status(500).send("Error fetching data"); }
+    const users = await User.findAll();
+    const trips = await Trip.findAll({ where: { isDeleted: false }, order: [['createdAt', 'DESC']] });
+    const trash = await Trip.findAll({ where: { isDeleted: true } });
+    const sos = await SOS.findAll({ order: [['createdAt', 'DESC']] });
+    res.json({ users, trips, trash, sos });
 });
 
 // ADMIN ACTIONS
-app.patch('/api/admin/users/status/:id', async (req, res) => {
-    await User.update({ status: req.body.status }, { where: { id: req.params.id } });
-    res.json({ message: "Status Updated" });
-});
-
-app.patch('/api/admin/trips/delete/:id', async (req, res) => {
-    await Trip.update({ isDeleted: true }, { where: { id: req.params.id } });
-    res.json({ message: "Moved to Trash" });
-});
-
-app.patch('/api/admin/trips/restore/:id', async (req, res) => {
-    await Trip.update({ isDeleted: false }, { where: { id: req.params.id } });
-    res.json({ message: "Restored" });
-});
-
-app.patch('/api/admin/sos/resolve/:id', async (req, res) => {
-    await SOS.update({ status: 'resolved' }, { where: { id: req.params.id } });
-    res.json({ message: "Resolved" });
-});
+app.patch('/api/admin/users/status/:id', async (req, res) => { await User.update({ status: req.body.status }, { where: { id: req.params.id } }); res.json({ message: "OK" }); });
+app.patch('/api/admin/trips/delete/:id', async (req, res) => { await Trip.update({ isDeleted: true }, { where: { id: req.params.id } }); res.json({ message: "Deleted" }); });
+app.patch('/api/admin/trips/restore/:id', async (req, res) => { await Trip.update({ isDeleted: false }, { where: { id: req.params.id } }); res.json({ message: "Restored" }); });
+app.patch('/api/admin/sos/resolve/:id', async (req, res) => { await SOS.update({ status: 'resolved' }, { where: { id: req.params.id } }); res.json({ message: "Resolved" }); });
 
 // USER ACTIONS
-app.post('/api/trips', async (req, res) => {
-    const trip = await Trip.create(req.body);
-    res.json(trip);
-});
-
-app.post('/api/sos', async (req, res) => {
-    const s = await SOS.create(req.body);
-    res.json(s);
-});
-
+app.post('/api/trips', async (req, res) => { res.json(await Trip.create(req.body)); });
+app.post('/api/sos', async (req, res) => { res.json(await SOS.create(req.body)); });
 app.get('/api/user/sos/status/:name', async (req, res) => {
     const last = await SOS.findOne({ where: { userName: req.params.name }, order: [['createdAt', 'DESC']] });
     res.json(last);
 });
 
-// --- SERVER LISTEN ---
+app.get("/", (req, res) => res.send("🚀 eSakay MySQL API Live"));
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 eSakay MySQL Server is running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on port ${PORT}`));
