@@ -6,23 +6,26 @@ require('dotenv').config();
 
 const app = express();
 app.use(express.json());
+
+// Pinapayagan ang lahat ng connection para iwas CORS error sa deployment
 app.use(cors());
 
-// --- 1. DATABASE CONNECTION ---
-// Auto-detect: Gagamit ng SSL settings kung Cloud, standard kung Local (XAMPP)
-const isCloud = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('aivencloud.com');
-
+// --- 1. CLOUD DATABASE CONNECTION (AIVEN MYSQL) ---
+// Ang SSL property ay kailangan para makakonekta sa Aiven Cloud
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'mysql',
     logging: false,
-    dialectOptions: isCloud ? {
-        ssl: { require: true, rejectUnauthorized: false }
-    } : {}
+    dialectOptions: {
+        ssl: {
+            require: true,
+            rejectUnauthorized: false
+        }
+    }
 });
 
 sequelize.authenticate()
-    .then(() => console.log(`✅ eSakay connected to ${isCloud ? 'Cloud' : 'Local XAMPP'} MySQL`))
-    .catch(err => console.log('❌ MySQL Error:', err));
+    .then(() => console.log('✅ eSakay connected to Aiven Cloud MySQL!'))
+    .catch(err => console.log('❌ MySQL Connection Error:', err));
 
 // --- 2. MODELS (TABLES) ---
 const User = sequelize.define('User', {
@@ -45,25 +48,26 @@ const Trip = sequelize.define('Trip', {
 const SOS = sequelize.define('SOS', {
     userName: DataTypes.STRING,
     location: { type: DataTypes.STRING, defaultValue: "GenSan Area" },
-    status: { type: DataTypes.STRING, defaultValue: 'active' }
+    status: { type: DataTypes.STRING, defaultValue: 'active' } // active or resolved
 });
 
-// Auto-sync: Gagawa ng tables sa MySQL kung wala pa
+// Gagawa ng tables sa Aiven Cloud automatic
 sequelize.sync();
 
 // --- 3. ROUTES ---
 
-// Health Check (Fixes "Cannot GET /")
+// Health Check (Para malaman kung gising ang server)
 app.get("/", (req, res) => {
-    res.send("🚀 eSakay MySQL API is LIVE and Connected!");
+    res.send("🚀 eSakay Cloud API is running and connected to Aiven MySQL!");
 });
 
-// REGISTER
+// REGISTER LOGIC
 app.post('/api/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = await User.create({ 
+        // Automatic approved kung Admin ang nag-register
+        await User.create({ 
             name, email, password: hashedPassword, role, 
             status: role === 'admin' ? 'approved' : 'pending' 
         });
@@ -71,21 +75,23 @@ app.post('/api/register', async (req, res) => {
     } catch (e) { res.status(400).json({ message: "Email already taken" }); }
 });
 
-// LOGIN
+// LOGIN LOGIC
 app.post('/api/login', async (req, res) => {
-    const user = await User.findOne({ where: { email: req.body.email } });
-    if (!user) return res.status(400).json({ message: "User not found" });
-    
-    const isMatch = await bcrypt.compare(req.body.password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
-    
-    if (user.role === 'user' && user.status !== 'approved') {
-        return res.status(403).json({ message: `Account is ${user.status}.` });
-    }
-    res.json({ user });
+    try {
+        const user = await User.findOne({ where: { email: req.body.email } });
+        if (!user) return res.status(400).json({ message: "User not found" });
+        
+        const isMatch = await bcrypt.compare(req.body.password, user.password);
+        if (!isMatch) return res.status(400).json({ message: "Invalid Password" });
+        
+        if (user.role === 'user' && user.status !== 'approved') {
+            return res.status(403).json({ message: `Account is ${user.status}.` });
+        }
+        res.json({ user });
+    } catch (e) { res.status(500).send(e); }
 });
 
-// UPDATE PROFILE (Fixed for MySQL)
+// UPDATE PROFILE (Dito ang edit profile functionality)
 app.patch('/api/users/update/:id', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -98,7 +104,7 @@ app.patch('/api/users/update/:id', async (req, res) => {
     } catch (e) { res.status(400).send("Update Failed"); }
 });
 
-// ADMIN: GET ALL DATA
+// ADMIN: GET ALL DATA (Dashboard Stats + Logs)
 app.get('/api/admin/all', async (req, res) => {
     try {
         const users = await User.findAll();
@@ -112,12 +118,12 @@ app.get('/api/admin/all', async (req, res) => {
 // ADMIN ACTIONS
 app.patch('/api/admin/users/status/:id', async (req, res) => {
     await User.update({ status: req.body.status }, { where: { id: req.params.id } });
-    res.json({ message: "OK" });
+    res.json({ message: "Status Updated" });
 });
 
 app.patch('/api/admin/trips/delete/:id', async (req, res) => {
     await Trip.update({ isDeleted: true }, { where: { id: req.params.id } });
-    res.json({ message: "Deleted" });
+    res.json({ message: "Moved to Trash" });
 });
 
 app.patch('/api/admin/trips/restore/:id', async (req, res) => {
@@ -148,4 +154,4 @@ app.get('/api/user/sos/status/:name', async (req, res) => {
 
 // --- SERVER LISTEN ---
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 eSakay MySQL Server is running on port ${PORT}`));
